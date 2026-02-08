@@ -6,10 +6,14 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 
 from app.project_manager import ProjectManager
+
 from app.widgets.file_tree import FileTreeWidget
 from app.widgets.editor import EditorWidget
 from app.widgets.preview import PreviewWidget
 from app.plantuml_renderer import AsyncPlantUMLPreview
+from app.widgets.topbar import TopBar
+
+from app.dialogs.new_project_dialog import NewProjectDialog
 
 
 class MainWindow(QMainWindow):
@@ -30,7 +34,9 @@ class MainWindow(QMainWindow):
             preview_widget=self.preview
         )
 
-        self._create_menu()
+        self.topbar = TopBar(self)
+        self.setMenuBar(self.topbar.get_menu_bar())
+
         self._create_layout()
         self._connect_signals()
 
@@ -39,19 +45,6 @@ class MainWindow(QMainWindow):
         self.render_timer.setSingleShot(True)
         self.render_timer.timeout.connect(self.render_preview)
 
-        # Shortcut Ctrl+S
-        save_action = QAction("Save", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.save_current_file)
-        self.addAction(save_action)
-
-    # =========================
-    # MENU
-    # =========================
-    def _create_menu(self):
-        menu = self.menuBar().addMenu("Project")
-        menu.addAction("New Project").triggered.connect(self.create_project)
-        menu.addAction("Open Project").triggered.connect(self.open_project)
 
     # =========================
     # LAYOUT
@@ -168,22 +161,47 @@ class MainWindow(QMainWindow):
     # PROJECT HANDLING
     # =========================
     def create_project(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select project folder")
-        if not folder:
+        dialog = NewProjectDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        if not self.project_manager.create_project(folder):
-            QMessageBox.warning(self, "Error", "Project already exists")
+
+        result = dialog.get_data()
+        if not result:
+            QMessageBox.warning(self, "Error", "Invalid project data")
             return
+
+        folder, name = result
+        tsp_path = os.path.join(folder, f"{name}.tsp")
+
+        if os.path.exists(tsp_path):
+            QMessageBox.warning(self, "Error", "Project already exists in this folder")
+            return
+
+        if not self.project_manager.create_project(tsp_path, name):
+            QMessageBox.warning(self, "Error", "Unable to create project")
+            return
+
         self.load_project(folder)
 
     def open_project(self):
-        folder = QFileDialog.getExistingDirectory(self, "Open project folder")
-        if not folder:
+        tsp_file, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Project",
+            "",
+            "TSP Project (*.tsp)"
+        )
+
+        if not tsp_file:
             return
+
+        folder = os.path.dirname(tsp_file)
+
         if not self.project_manager.is_workspace(folder):
             QMessageBox.warning(self, "Error", "Invalid workspace")
             return
+
         self.load_project(folder)
+
 
     def load_project(self, folder):
         self.project_manager.open_project(folder)
